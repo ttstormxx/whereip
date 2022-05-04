@@ -13,7 +13,9 @@
 
 `cat url.txt|whereip.exe`
 
-`whereip.exe  -l url.txt   -c CN   -s  ah`
+`cat url.txt|whereip.exe -c US -s CA`
+
+`whereip.exe  -l url.txt   -c CN   -s  AH`
 
 
 ![image](https://user-images.githubusercontent.com/48342077/166718950-d4444d1d-ebce-4fb2-8f1a-bcd57389f321.png)
