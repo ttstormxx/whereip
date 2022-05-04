@@ -8,11 +8,15 @@
 
 # 用法
 `echo baidu.com|whereip.exe`
+
 `echo  183.160.114.27:9999|whereip.exe`
+
 `cat url.txt|whereip.exe`
+
 `whereip.exe  -l url.txt   -c CN   -s  ah`
 
-![image](https://user-images.githubusercontent.com/48342077/166718695-609fd382-856d-4710-8ea9-eeeac8f3cf61.png)
+
+![image](https://user-images.githubusercontent.com/48342077/166718950-d4444d1d-ebce-4fb2-8f1a-bcd57389f321.png)
 
 # 参数
 -c string
