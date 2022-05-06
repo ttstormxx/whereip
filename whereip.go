@@ -342,7 +342,7 @@ func main() {
 
 	flag.Parse()
 
-	*url_file_path = strings.ToUpper(*url_file_path)
+	// *url_file_path = strings.ToUpper(*url_file_path)
 	*save_country_code = strings.ToUpper(*save_country_code)
 	*save_region_code = strings.ToUpper(*save_region_code)
 
