@@ -26,6 +26,9 @@
     
 -l string
     url文件路径 (default "url.txt")
+
+  -o string
+        保存文件
     
 -s string
     要保存的IP归属省份
