@@ -1,317 +1,12 @@
 package main
 
 import (
-	"bufio"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/dlclark/regexp2"
-	"io"
-	"io/ioutil"
-	"log"
-	"net"
-	"net/http"
-	"os"
 	"strings"
+	"time"
 	// "time"
 )
-
-type Ip_location struct {
-	Status      string `json:"status"`
-	Country     string `json:"country"`
-	CountryCode string `json:"countryCode"`
-	Region      string `json:"region"`
-	RegionName  string `json:"regionName"`
-	City        string `json:"city"`
-	Query       string `json:"query"`
-}
-
-type Url_Ip_Location struct {
-	Ip       string
-	Url      string
-	Location Ip_location
-}
-
-func ReadLine(filename string) ([]string, error) {
-
-	var result []string
-	// pip begins
-
-	stat, _ := os.Stdin.Stat()
-
-	if (stat.Mode() & os.ModeCharDevice) == 0 {
-
-		scanner := bufio.NewScanner(os.Stdin)
-		scanner.Split(bufio.ScanLines)
-		for scanner.Scan() {
-			result = append(result, scanner.Text())
-		}
-
-		if err := scanner.Err(); err != nil {
-			log.Fatal(err)
-		}
-		// pipe ends
-	} else {
-		f, err := os.Open(filename)
-		if err != nil {
-			return nil, err
-		}
-		defer func() {
-			f.Close()
-			// fmt.Println("文件关闭成功")
-		}()
-		reader := bufio.NewReader(f)
-
-		for {
-			// 这里文本最后一行读不到，需要处理,已处理
-			// 或者最后一行置空
-			// line,err :=buf.ReadString('\n')
-			line, _, err := reader.ReadLine()
-
-			if err != nil {
-				if err == io.EOF {
-					// 读取结束，报EOF
-
-					// fmt.Println("读取结束")
-					break
-				}
-				return nil, err
-			}
-			linestr := string(line)
-			result = append(result, linestr)
-		}
-	}
-	var temp []string
-	for _, value := range result {
-
-		// 处理两头空白字符
-		value = strings.TrimSpace(value)
-		// 抛弃空行
-		expr := `^$`
-		reg, _ := regexp2.Compile(expr, 0)
-		if isMatch, _ := reg.MatchString(value); !isMatch {
-			temp = append(temp, value)
-
-		}
-	}
-	result = temp
-	return result, nil
-}
-
-func UrlToIps(urls []string) []string {
-	// 处理URL为IP:PORT列表
-	// 正则表达式稍有问题
-	// URL后面如果没有/则无法匹配
-	// http://123.123.123.123 无法匹配
-	expr := `(?<=://).+?(?=/)`
-	reg, _ := regexp2.Compile(expr, 0)
-
-	// 对于URL后方无/的，主动添加/
-	// http://123.123.123.123
-	// 变为
-	// http://123.123.123.123/
-	// 同时针对单行为IP/域名的情况，主动添加http://xxxx/
-	//
-	expr_http_finder := `^(http://|https://)`
-	reg2, _ := regexp2.Compile(expr_http_finder, 0)
-
-	var temp []string
-	for _, value := range urls {
-		// 任何value，后方均➕/
-		value = value + "/"
-		// 查找开头是否为http://或https://，没有则加上
-
-		if isMatch, _ := reg2.MatchString(value); !isMatch {
-			value = "http://" + value
-		}
-
-		match, _ := reg.FindStringMatch(value)
-		ipPort := match.String()
-		ipPort = strings.Split(ipPort, ":")[0]
-		// 处理 IP:PORT列表为IP列表
-		temp = append(temp, ipPort)
-	}
-	return temp
-
-}
-
-func PostGetIpLocation(url, contentType string, ipsSlice []string) []Ip_location {
-
-	var temp []string
-	for _, value := range ipsSlice {
-		value = "\"" + value + "\""
-		temp = append(temp, value)
-	}
-
-	dataString := strings.Join(temp, ",")
-	dataString = "[" + dataString + "]"
-
-	dstring := strings.NewReader(dataString)
-	resp, err := http.Post(url, contentType, dstring)
-
-	// 有时会出现502未访问成功，需重新发送
-	// 需更换为for 502则一直发
-	// 发现重新发也没用，稍等1分钟即可
-	if resp.StatusCode == 502 {
-		// fmt.Println("现在超过api的限制了")
-		// fmt.Println("程序将休眠1分钟，然后重新发送。。。")
-		fmt.Println("502了，准备重新发包。。。")
-		fmt.Println("目前重发过程有问题，重新执行程序即可")
-		// time.Sleep(60 * time.Second)
-		// 重新发包，body丢失，不知啥原因，暂时搁置
-		// resp, err = http.Post(url, contentType, dstring)
-	}
-
-	if err != nil {
-		fmt.Println("post failed, err:", err)
-		// return err
-	}
-	defer resp.Body.Close()
-	if err != nil {
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-
-	jsonbody := make([]Ip_location, 0)
-
-	err = json.Unmarshal([]byte(body), &jsonbody)
-	if err != nil {
-		fmt.Println(err)
-	}
-	return jsonbody
-}
-
-func IpSlice(ipsarr []string, n int, url, contentType string) []Ip_location {
-
-	var temp []Ip_location
-	for i := 0; i <= n; i++ {
-		if i == 0 {
-			i += 1
-			slice := ipsarr[(i-1)*100 : 100*i]
-			// fmt.Println(slice)
-			// 发包操作
-			sliceResult := PostGetIpLocation(url, contentType, slice)
-			for _, value := range sliceResult {
-				temp = append(temp, value)
-			}
-
-		} else {
-			slice := ipsarr[(i-1)*100 : 100*i]
-			// fmt.Println(slice)
-			// 发包操作
-			sliceResult := PostGetIpLocation(url, contentType, slice)
-			for _, value := range sliceResult {
-				temp = append(temp, value)
-			}
-		}
-
-	}
-	// 避免最后一次发空包
-	if !(n*100 == len(ipsarr)) {
-		slice := ipsarr[n*100 : len(ipsarr)]
-		// fmt.Println(slice)
-		// 发包操作
-		sliceResult := PostGetIpLocation(url, contentType, slice)
-		for _, value := range sliceResult {
-			temp = append(temp, value)
-		}
-	}
-	return temp
-}
-
-func JsonIpLocation(url, contentType string, ips []string) []Ip_location {
-
-	// 切片 最大值100
-	var temp []Ip_location
-	n := len(ips) / 100
-
-	// 判断是否超过100个URL值，超过则调用IpSlice()
-	// 不超过则直接调用 PostGetIpLocation()
-	if n == 0 || len(ips) == 100 {
-
-		temp = PostGetIpLocation(url, contentType, ips)
-
-	} else {
-		temp = IpSlice(ips, n, url, contentType)
-	}
-
-	return temp
-}
-
-func To_Url_Ip_Location(urls, ips []string, locations []Ip_location) []Url_Ip_Location {
-
-	temp := []Url_Ip_Location{}
-	for i := 0; i < len(urls); i++ {
-		temp = append(temp, Url_Ip_Location{ips[i], urls[i], locations[i]})
-	}
-	return temp
-}
-
-func FilterForeign(urlIpLocation []Url_Ip_Location, save_country_code, save_region_code string) []Url_Ip_Location {
-	var temp []Url_Ip_Location
-	if save_region_code == "" {
-		for _, value := range urlIpLocation {
-			if value.Location.CountryCode == save_country_code {
-				temp = append(temp, value)
-			}
-		}
-	} else {
-		for _, value := range urlIpLocation {
-			if value.Location.CountryCode == save_country_code && value.Location.Region == save_region_code {
-				temp = append(temp, value)
-			}
-		}
-	}
-
-	return temp
-}
-
-func DomainToIp(ips []string) []string {
-	// 正则表达式排除ip，对域名进行处理
-	expr := `\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}`
-	reg, err := regexp2.Compile(expr, 0)
-	if err != nil {
-		fmt.Println(err)
-	}
-	var tempIps []string
-	for _, value := range ips {
-
-		if isMatch, _ := reg.MatchString(value); !isMatch {
-			// Domain to ip
-			ns, err := net.LookupHost(value)
-			if err != nil {
-				fmt.Println(err)
-			}
-			tempIps = append(tempIps, ns[0])
-		} else {
-			tempIps = append(tempIps, value)
-		}
-	}
-	return tempIps
-}
-
-func ChinaWriteToFile(chinaAll []Url_Ip_Location) bool {
-	var tempString string
-	var tempStringCsv string
-	for _, value := range chinaAll {
-		// fmt.Println(value)
-		// 写入文件
-
-		tempString += value.Url + "   " + value.Ip + "   " + value.Location.CountryCode + "   " + value.Location.RegionName + "\n"
-		tempStringCsv += value.Url + "," + value.Ip + "," + value.Location.CountryCode + "," + value.Location.RegionName + "\n"
-		// 写入txt
-		err := ioutil.WriteFile("results.txt", []byte(tempString), 0666)
-		if err != nil {
-			fmt.Println(err)
-		}
-		// 写入CSV文件
-		err1 := ioutil.WriteFile("results.csv", []byte(tempStringCsv), 0666)
-		if err1 != nil {
-			fmt.Println(err1)
-		}
-	}
-	return true
-}
 
 func main() {
 	// 添加 google搜索结果链接爬虫  未完成 #放弃
@@ -320,7 +15,7 @@ func main() {
 	// 免费API每分钟最大发包次数45次 免费查询每次发包最大IP值是100 注意切割  切片 @已处理
 	// 解析域名，本api无法通过POST解析域名  @已处理
 	// 返回CN ip和对应URL struct   @已处理
-	// 返回502 重新发包     未完成 #放弃
+	// 返回502 重新发包     未完成  @已处理
 	// 筛选 fail  success    @已处理
 	// 打印失败的查询 到控制台  @已处理
 	// 查询失败的地址 寻找其他API   暂时搁置(放弃)
@@ -328,17 +23,54 @@ func main() {
 	// 增加IP URL检测，是否需要进行split  @已处理
 	// 针对上一条，思路不对，如果是IP，主动转换为URL，再进行处理
 	// 在UrlToIps函数中连带后方无/的问题，一并处理
-	// 当数据不是正确的URL/域名/IP时，NS解析会报错   暂时搁置(放弃)
+	// 当数据不是正确的URL/域名/IP时，NS解析会报错   @已处理
 	// CDN？  我看算了吧  #放弃
 	// URL/IP/Domain去重？ 不去重  #放弃
 	// 参数模式		@已处理
 	// 管道符模式    @已处理
+
+	// 域名/IP有效性验证   	@已处理
+	// 非有效域名/IP 剔除并展示 其他正常处理    @已处理
+	// 域名解析失败，使用新的解析API尝试解析
+	// https://ip-api.com/docs/dns
+	// 域名解析失败的剔除并记录展示   @已处理
+	// 发包失败的重新发包  非 200 的重新发包  @已处理
+	// POST包重发 body丢失问题    @已处理
+	// 重新发包失败的剔除并记录  目前  一直发 直到成功  @已处理
+	// 发包超时重新发包  5s 	@已处理
+	// 竟然会收到不完整的response wtf？？？  这里需要重发  应该是超时太长时间了，需要限制超时，超过重发 @已处理
+	// 平均超时太长是因为没有挂梯子，需要挂梯子
+	// 超过API 每分钟45次 每次100个 限制的，等待重发，似乎在变化，有可能是15次，有可能是20多次 @已处理
+	// 添加代理池，超出免费API切换代理请求
+	// 并发请求API
+	// CDN展示   增加CDN 域名展示，在通用查询的基础上，额外对于CDN解析出的IP逐个查询并提醒
+	// 吸收多个域名解析接口，结果对比
+	// 默认不保存 增加 o 参数  @已处理
+	// 优化大批量查询的稳定性  @已处理
+	// 增加proxy选项 -proxy
+
+	var (
+		originUrl         []string // 原始URL列表
+		originUrl_no_fail []string // 原始URL列表单次去除解析失败的地址
+		misc              []string //处理完初始URL后的IP/域名列表
+		misc_no_fail      []string //处理完初始URL后的IP/域名列表单次去除解析失败的地址
+
+		ips        []string                                        //域名解析完毕后的IP列表
+		faildomain []string                                        //域名解析失败的域名列表
+		failint    []int                                           //标记域名解析失败的域名index
+		url        string   = "http://ip-api.com/batch?lang=zh-CN" //API地址
+		// url := "http://ip-api.com/batch?lang=en"  //en API地址
+		// contentType string = "application/json" //请求头
+		o string
+	)
+	start := time.Now()
 
 	url_file_path := flag.String("l", "url.txt", "url文件路径")
 
 	save_country_code := flag.String("c", "CN", "要保存的IP归属国家")
 
 	save_region_code := flag.String("s", "", "要保存的IP归属省份")
+	flag.StringVar(&o, "o", "", "保存文件")
 
 	flag.Parse()
 
@@ -346,41 +78,57 @@ func main() {
 	*save_country_code = strings.ToUpper(*save_country_code)
 	*save_region_code = strings.ToUpper(*save_region_code)
 
-	urls, err := ReadLine(*url_file_path)
+	originUrl, err := ReadLine(*url_file_path)
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
 
-	fmt.Println("url总数为: ", len(urls), " 个")
+	fmt.Println("输入的url总数为: ", len(originUrl), " 个")
 
 	// 处理URL为IP:PORT列表-->IP列表
-	misc := UrlToIps(urls)
+	// fmt.Println("处理URL为misc")
+	misc, err = UrlToIps(originUrl)
+	if err != nil {
+		fmt.Println(err)
+		return
+		// os.Exit(1)
+	}
 
 	// 解析域名，本api无法通过POST解析域名
 	// DomainToIp(ips)
-	ips := DomainToIp(misc)
+	fmt.Println("开始域名解析")
+	ips, faildomain, failint, _ = DomainToIp(misc)
+	fmt.Println()
+	if len(faildomain) > 0 {
+		fmt.Println("解析失败的域名总共：", len(faildomain), "个", "如下：", faildomain)
+	}
 
-	// API
-	// en Api
-	// url := "http://ip-api.com/batch?lang=en"
-	// CN Api
-	url := "http://ip-api.com/batch?lang=zh-CN"
-	contentType := "application/json"
+	// 根据失败域名下标 去除对应失败域名
+	originUrl_no_fail = RemoveFailDomain(originUrl, failint)
+	misc_no_fail = RemoveFailDomain(misc, failint)
 
-	locations := JsonIpLocation(url, contentType, ips)
+	fmt.Println()
+	fmt.Println("开始获取IP的归属地")
+	locations := JsonIpLocation(url, ips)
 
-	myAll := To_Url_Ip_Location(urls, misc, locations)
-
+	myAll := To_Url_Ip_Location(originUrl_no_fail, misc_no_fail, locations)
+	// fmt.Println("结构化地址归属成功")
 	fmt.Println("全部地址归属如下：")
 	for _, value := range myAll {
 		fmt.Println(value)
 	}
-	fmt.Println("\n\n")
-	// fmt.Println("其中中国IP的地址总数为： ",len(chinaAll)," 个")
-	// fmt.Println("其中中国IP的地址为：")
+	fmt.Println()
+	fmt.Println()
+
 	chinaAll := FilterForeign(myAll, *save_country_code, *save_region_code)
 
-	fmt.Println("指定保存的IP归属 国家 是：", *save_country_code)
+	if *save_country_code == "CN" {
+		fmt.Println("指定保存的IP归属 国家 是：", *save_country_code, "(不含港澳台)")
+	} else {
+		fmt.Println("指定保存的IP归属 国家 是：", *save_country_code)
+	}
+
 	if *save_region_code != "" {
 		fmt.Println("指定保存的IP归属 省份代码 是：", *save_region_code)
 	} else {
@@ -395,7 +143,8 @@ func main() {
 		fmt.Println(value)
 	}
 
-	fmt.Println("\n\n")
+	fmt.Println()
+	fmt.Println()
 	// 打印查询失败的链接组
 
 	// failCount := 0
@@ -414,12 +163,28 @@ func main() {
 	for _, value := range failArr {
 		fmt.Println(value)
 	}
-	fmt.Println("\n\n")
+	// fmt.Println("\n\n")
+	fmt.Println()
+	fmt.Println()
 
 	// 写入文件
-	// fmt.Println("写入文件。。。")
-	ChinaWriteToFile(chinaAll)
-	// 写入文件
-	fmt.Println("写入文件完毕。。。(txt,csv)")
+	if o != "" {
+		fmt.Println("文件写入中...")
+		fmt.Println()
+		// fmt.Println("文件名为：", o)
 
+		// fmt.Println("写入文件。。。")
+		ChinaWriteToFile(chinaAll, o)
+		// 写入文件
+		if strings.HasSuffix(o, ".txt") {
+
+			fmt.Println("写入文件完毕。。。(txt)")
+		} else if strings.HasSuffix(o, ".csv") {
+			fmt.Println("写入文件完毕。。。(csv)")
+		} else {
+			fmt.Println("写入文件完毕。。。(txt,csv)")
+		}
+	}
+	elapse := time.Since(start)
+	fmt.Println("程序本次运行耗时：", elapse)
 }
